@@ -188,7 +188,7 @@ class AdvancedTests(check0: => Checker,
 
     'shapeless{
       check.session("""
-        @ load.ivy("com.chuusai" %% "shapeless" % "2.2.0-RC6"); if (scala.util.Properties.versionNumberString.startsWith("2.10.")) load.compiler.ivy("org.scalamacros" % "paradise_2.10.6" % "2.0.1")
+        @ load.ivy("com.chuusai" %% "shapeless" % "2.2.5"); if (scala.util.Properties.versionNumberString.startsWith("2.10.")) load.plugin.ivy("org.scalamacros" % "paradise_2.10.6" % "2.0.1")
 
         @ import shapeless._
 
@@ -367,12 +367,9 @@ class AdvancedTests(check0: => Checker,
         @ import ammonite.tprint.TPrint
 
         @ implicit def ArrayTPrint[T: TPrint]: TPrint[Array[T]] = TPrint.lambda( c =>
-        @   implicitly[TPrint[T]].render(c) +
-        @   " " +
-        @   c.colors.literalColor +
-        @   "Array" +
-        @   c.colors.endColor
+        @  implicitly[TPrint[T]].render(c) + " " + c.colors.literalColor + "Array" + c.colors.endColor
         @ )
+        defined function ArrayTPrint
 
         @ Array(1)
         res3: Int Array = Array(1)
