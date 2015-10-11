@@ -4,13 +4,16 @@ package tests
 import ammonite.interpreter.Res
 import utest._
 
-class AdvancedTests(check0: => Checker,
-                    isAmmonite: Boolean = true,
-                    hasMacros: Boolean = !scala.util.Properties.versionNumberString.startsWith("2.10."),
-                    wrapperInstance: (Int, Int) => String = (ref, cur) => s"cmd$ref.$$user") extends TestSuite{
+class AdvancedTests(
+  check0: => Checker,
+  isAmmonite: Boolean = true,
+  hasMacros: Boolean = !scala.util.Properties.versionNumberString.startsWith("2.10."),
+  wrapperInstance: (Int, Int) => String = (_, _) => "$user."
+) extends TestSuite{
+
+  val scala2_10 = scala.util.Properties.versionNumberString.startsWith("2.10.")
 
   val tests = TestSuite{
-    println("AdvancedTests")
     val check = check0
     'load{
       'ivy{
@@ -126,7 +129,7 @@ class AdvancedTests(check0: => Checker,
     'pprint{
       check.session(s"""
         @ Seq.fill(10)(Seq.fill(3)("Foo"))
-        res0: Seq[Seq[java.lang.String]] = List(
+        res0: Seq[Seq[String]] = List(
           List("Foo", "Foo", "Foo"),
           List("Foo", "Foo", "Foo"),
           List("Foo", "Foo", "Foo"),
@@ -143,10 +146,10 @@ class AdvancedTests(check0: => Checker,
         defined class Foo
 
         @ Foo(1, "", Nil)
-        res2: ${wrapperInstance(1, 2)}.Foo = Foo(1, "", List())
+        res2: ${wrapperInstance(1, 2)}Foo = Foo(1, "", List())
 
         @ Foo(1234567, "I am a cow, hear me moo", Seq("I weigh twice as much as you", "and I look good on the barbecue"))
-        res3: ${wrapperInstance(1, 3)}.Foo = Foo(
+        res3: ${wrapperInstance(1, 3)}Foo = Foo(
           1234567,
           "I am a cow, hear me moo",
           List("I weigh twice as much as you", "and I look good on the barbecue")
@@ -169,7 +172,7 @@ class AdvancedTests(check0: => Checker,
         @ x
 
         @ history
-        res2: scala.Seq[String] = Vector("val x = 1", "x")
+        res2: Seq[String] = Vector("val x = 1", "x")
       """)
     }
     'customPPrint{
@@ -177,28 +180,28 @@ class AdvancedTests(check0: => Checker,
         @ class C
         defined class C
 
-        @ implicit def pprint = ammonite.pprint.PPrinter[C]((t, c) => Iterator("INSTANCE OF CLASS C"))
+        @ implicit def pprint = _root_.pprint.PPrinter[C]((t, c) => Iterator("INSTANCE OF CLASS C"))
         defined function pprint
 
         @ new C
-        res2: ${wrapperInstance(0, 2)}.C = INSTANCE OF CLASS C
+        res2: ${wrapperInstance(0, 2)}C = INSTANCE OF CLASS C
       """)
     }
 
     'shapeless{
       check.session("""
-        @ load.ivy("com.chuusai" %% "shapeless" % "2.2.0-RC6"); if (scala.util.Properties.versionNumberString.startsWith("2.10.")) load.compiler.ivy("org.scalamacros" % "paradise_2.10.5" % "2.0.1")
+        @ load.ivy("com.chuusai" %% "shapeless" % "2.2.5"); if (scala.util.Properties.versionNumberString.startsWith("2.10.")) load.plugin.ivy("org.scalamacros" % "paradise_2.10.6" % "2.0.1")
 
         @ import shapeless._
 
         @ (1 :: "lol" :: List(1, 2, 3) :: HNil)(1)
-        res2: java.lang.String = "lol"
+        res2: String = "lol"
 
         @ case class Foo(i: Int, blah: String, b: Boolean)
         defined class Foo
 
         @ Generic[Foo].to(Foo(2, "a", true))
-        res4: shapeless.::[Int,shapeless.::[java.lang.String,shapeless.::[Boolean,shapeless.HNil]]] = ::(2, ::("a", ::(true, HNil)))
+        res4: shapeless.::[Int,shapeless.::[String,shapeless.::[Boolean,shapeless.HNil]]] = ::(2, ::("a", ::(true, HNil)))
       """)
     }
 
@@ -213,7 +216,7 @@ class AdvancedTests(check0: => Checker,
         import Scalaz._
 
         @ (Option(1) |@| Option(2))(_ + _)
-        res3: scala.Option[Int] = Some(3)
+        res3: Option[Int] = Some(3)
       """)
     }
     'scalazstream{
@@ -229,15 +232,53 @@ class AdvancedTests(check0: => Checker,
         import scalaz.concurrent.Task
 
         @ val p1 = Process.constant(1).toSource
-        p1: scalaz.stream.Process[scalaz.concurrent.Task,Int] = Append(Emit(Vector(1)),Vector(<function1>))
+        p1: scalaz.stream.Process[scalaz.concurrent.Task,Int] = Append(Emit(Vector(1)), Vector(<function1>))
 
         @ val pch = Process.constant((i:Int) => Task.now(())).take(3)
-        pch: scalaz.stream.Process[Nothing,Int => scalaz.concurrent.Task[Unit]] = Append(Halt(End),Vector(<function1>))
+        pch: scalaz.stream.Process[Nothing,Int => scalaz.concurrent.Task[Unit]] = Append(Halt(End), Vector(<function1>))
 
         @ p1.to(pch).runLog.run.size == 3
         res6: Boolean = true
       """)
     }
+
+    // FIXME Works in Ammonite main line, not here
+//    'specialPPrint{
+//      // Make sure these various "special" data structures get pretty-printed
+//      // correctly, i.e. not as their underlying type but as something more
+//      // pleasantly human-readable
+//      if (!scala2_10)
+//        check.session("""
+//          @ import ammonite.ops._
+//
+//          @ ls! wd/'ops
+//          res1: LsSeq = LsSeq(
+//            'src,
+//            'target
+//          )
+//
+//          @ %%ls 'ops
+//          res2: CommandResult =
+//          src
+//          target
+//        """)
+//      else
+//        check.session("""
+//          @ import ammonite.ops._
+//
+//          @ ls! wd/'ops
+//          res1: ammonite.ops.LsSeq = LsSeq(
+//            'src,
+//            'target
+//          )
+//
+//          @ %%ls 'ops
+//          res2: ammonite.ops.CommandResult =
+//          src
+//          target
+//        """)
+//    }
+
     'scalaparse{
       // Prevent regressions when wildcard-importing things called `macro` or `_`
       check.session("""
@@ -269,7 +310,7 @@ class AdvancedTests(check0: => Checker,
           res0: Int = -1
 
           @ y
-          res1: java.lang.String = "2"
+          res1: String = "2"
 
           @ x + y
           res2: String = "12"
@@ -300,6 +341,42 @@ class AdvancedTests(check0: => Checker,
           res4: java.lang.String = "Hello!"
         """)
     }
+    'typeScope{
+      // Fancy type-printing isn't implemented at all in 2.10.x
+      if (!scala2_10) check.session("""
+        @ collection.mutable.Buffer(1)
+        res0: collection.mutable.Buffer[Int] = ArrayBuffer(1)
+
+        @ import collection.mutable
+
+        @ collection.mutable.Buffer(1)
+        res2: mutable.Buffer[Int] = ArrayBuffer(1)
+
+        @ mutable.Buffer(1)
+        res3: mutable.Buffer[Int] = ArrayBuffer(1)
+
+        @ import collection.mutable.Buffer
+
+        @ mutable.Buffer(1)
+        res5: Buffer[Int] = ArrayBuffer(1)
+      """)
+    }
+    'customTypePrinter{
+      check.session("""
+        @ Array(1)
+        res0: Array[Int] = Array(1)
+
+        @ import ammonite.tprint.TPrint
+
+        @ implicit def ArrayTPrint[T: TPrint]: TPrint[Array[T]] = TPrint.lambda( c =>
+        @  implicitly[TPrint[T]].render(c) + " " + c.colors.literalColor + "Array" + c.colors.endColor
+        @ )
+        defined function ArrayTPrint
+
+        @ Array(1)
+        res3: Int Array = Array(1)
+      """)
+    }
     'unwrapping{
       check.session("""
         @ {
@@ -324,8 +401,13 @@ class AdvancedTests(check0: => Checker,
     }
     'truncation{
       check.session("""
-      @ Seq.fill(20)(100)
+      @ Seq.fill(25)(100)
       res0: Seq[Int] = List(
+        100,
+        100,
+        100,
+        100,
+        100,
         100,
         100,
         100,
@@ -342,8 +424,13 @@ class AdvancedTests(check0: => Checker,
         100,
       ...
 
-      @ show(Seq.fill(20)(100))
-      res1: ammonite.pprint.Show[Seq[Int]] = List(
+      @ show(Seq.fill(25)(100))
+      List(
+        100,
+        100,
+        100,
+        100,
+        100,
         100,
         100,
         100,
@@ -366,13 +453,13 @@ class AdvancedTests(check0: => Checker,
         100
       )
 
-      @ show(Seq.fill(20)(100), lines = 3)
-      res2: ammonite.pprint.Show[Seq[Int]] = List(
+      @ show(Seq.fill(20)(100), height = 3)
+      List(
         100,
         100,
       ...
 
-      @ pprintConfig = pprintConfig.copy(lines = 5)
+      @ pprintConfig = pprintConfig.copy(height = 5)
 
       @ Seq.fill(20)(100)
       res4: Seq[Int] = List(
@@ -381,6 +468,68 @@ class AdvancedTests(check0: => Checker,
         100,
         100,
       ...
+      """, captureOut = true)
+    }
+    'private{
+      check.session("""
+        @ private val x = 1; val y = x + 1
+        y: Int = 2
+
+        @ y
+        res1: Int = 2
+
+        @ x
+        error: not found: value x
+      """)
+    }
+    'compilerPlugin{
+      check.session("""
+        @ // Make sure plugins from eval class loader are not loaded
+
+        @ load.ivy("org.spire-math" %% "kind-projector" % "0.6.3")
+
+        @ trait TC0[F[_]]
+        defined trait TC0
+
+        @ type TC0EitherStr = TC0[Either[String, ?]]
+        error: not found: type ?
+
+        @ // This one must be loaded
+
+        @ load.plugin.ivy("org.spire-math" %% "kind-projector" % "0.6.3")
+
+        @ trait TC[F[_]]
+        defined trait TC
+
+        @ type TCEitherStr = TC[Either[String, ?]]
+        defined type TCEitherStr
+
+        @ // Useless - does not add plugins, and ignored by eval class loader
+        
+        @ load.plugin.ivy("eu.timepit" %% "refined" % "0.2.1")
+
+        @ import eu.timepit.refined._
+        error: not found: value eu
+      """)
+    }
+    'replApiUniqueness{
+      // Make sure we can instantiate multiple copies of Interpreter, with each
+      // one getting its own `ReplBridge`. This ensures that the various
+      // Interpreters are properly encapsulated and don't interfere with each
+      // other.
+      val c1 = check0
+      val c2 = check0
+      c1.session("""
+        @ repl.prompt() = "A"
+      """)
+      c2.session("""
+        @ repl.prompt() = "B"
+      """)
+      c1.session("""
+        @ assert(repl.prompt() == "A")
+      """)
+      c2.session("""
+        @ assert(repl.prompt() == "B")
       """)
     }
   }

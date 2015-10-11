@@ -3,11 +3,10 @@ package tests
 
 import utest._
 
-class EvaluatorTests(check0: => Checker, wrapperInstance: (Int, Int) => String = (ref, cur) => s"cmd$ref.$$user") extends TestSuite{
+class EvaluatorTests(check0: => Checker, wrapperInstance: (Int, Int) => String = (_, _) => "$user.") extends TestSuite{
 
   val tests = TestSuite{
     val check = check0
-    println("EvaluatorTests")
     'simpleExpressions{
       check.session("""
         @ 1 + 2
@@ -35,10 +34,10 @@ class EvaluatorTests(check0: => Checker, wrapperInstance: (Int, Int) => String =
         res3: Long = 110L
 
         @ val `class` = "class"
-        `class`: java.lang.String = "class"
+        `class`: String = "class"
 
         @ `class`
-        res5: java.lang.String = "class"
+        res5: String = "class"
       """)
     }
     'lazyvals{
@@ -104,13 +103,13 @@ class EvaluatorTests(check0: => Checker, wrapperInstance: (Int, Int) => String =
         defined type Funky
 
         @ val arr: Funky = Array(Array("Hello!"))
-        arr: ${wrapperInstance(0, 1)}.Funky = Array(Array("Hello!"))
+        arr: ${wrapperInstance(0, 1)}Funky = Array(Array("Hello!"))
 
         @ type Funky2[T] = Array[Array[T]]
         defined type Funky2
 
         @ val arr: Funky2[Int] = Array(Array(123))
-        arr: ${wrapperInstance(2, 3)}.Funky2[Int] = Array(Array(123))
+        arr: ${wrapperInstance(2, 3)}Funky2[Int] = Array(Array(123))
       """)
     }
     'library{
@@ -239,37 +238,37 @@ class EvaluatorTests(check0: => Checker, wrapperInstance: (Int, Int) => String =
         defined class C
 
         @ new C
-        res1: ${wrapperInstance(0, 1)}.C = Ceee
+        res1: ${wrapperInstance(0, 1)}C = Ceee
 
         @ case object CO
         defined object CO
 
         @ CO
-        res3: ${wrapperInstance(2, 3)}.CO.type = CO
+        res3: ${wrapperInstance(2, 3)}CO.type = CO
 
         @ case class CC()
         defined class CC
 
         @ CC()
-        res5: ${wrapperInstance(4, 5)}.CC = CC()
+        res5: ${wrapperInstance(4, 5)}CC = CC()
 
         @ CO
-        res6: ${wrapperInstance(2, 6)}.CO.type = CO
+        res6: ${wrapperInstance(2, 6)}CO.type = CO
 
         @ case class CO()
         defined class CO
 
         @ CO
-        res8: ${wrapperInstance(7, 8)}.CO.type = CO
+        res8: ${wrapperInstance(7, 8)}CO.type = CO
 
         @ CO()
-        res9: ${wrapperInstance(7, 9)}.CO = CO()
+        res9: ${wrapperInstance(7, 9)}CO = CO()
       """)
     }
 
     'packageImport{
       check.session("""
-        @ import ammonite.pprint._
+        @ import pprint._
 
         @ import Config.Defaults._
       """)
@@ -317,7 +316,7 @@ class EvaluatorTests(check0: => Checker, wrapperInstance: (Int, Int) => String =
         res3_2: Int = 3
 
         @ C()
-        res4: ${wrapperInstance(3, 4)}.C = C(0)
+        res4: ${wrapperInstance(3, 4)}C = C(0)
       """)
     }
 

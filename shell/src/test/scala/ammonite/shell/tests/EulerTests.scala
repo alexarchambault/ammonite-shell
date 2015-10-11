@@ -6,7 +6,6 @@ import utest._
 class EulerTests(check0: => Checker) extends TestSuite{
   val tests = TestSuite{
     val check = check0
-    println("EulerTests")
 
 
     // Taken from https://pavelfatin.com/scala-for-project-euler/
@@ -23,7 +22,7 @@ class EulerTests(check0: => Checker) extends TestSuite{
       // Fibonacci sequence which do not exceed four million.*
       check.session("""
         @ lazy val fs: Stream[Int] = 0 #:: 1 #:: fs.zip(fs.tail).map(p => p._1 + p._2)
-        fs: scala.Stream[Int] = <lazy>
+        fs: Stream[Int] = <lazy>
 
         @ val r = fs.view.takeWhile(_ <= 4000000).filter(_ % 2 == 0).sum
         r: Int = 4613732
@@ -82,7 +81,7 @@ class EulerTests(check0: => Checker) extends TestSuite{
       check.session("""
         @ lazy val ps: Stream[Int] = 2 #:: Stream.from(3).filter(i =>
         @ ps.takeWhile(j => j * j <= i).forall(i % _ > 0))
-        ps: scala.Stream[Int] = <lazy>
+        ps: Stream[Int] = <lazy>
 
         @ ps(10000)
         res1: Int = 104743
@@ -113,7 +112,7 @@ class EulerTests(check0: => Checker) extends TestSuite{
           |71636269561882670428252483600823257530420752963450""".stripMargin.replace("\n", "")
       check.session(s"""
         @ val s = "$data"
-        s: java.lang.String = "$data"
+        s: String = "$data"
 
         @ {
         @ s.filter(_.isDigit)
@@ -136,7 +135,7 @@ class EulerTests(check0: => Checker) extends TestSuite{
         @   c = 1000 - a - b
         @   if a * a + b * b  == c * c
         @ } yield a * b * c
-        rs: scala.collection.immutable.IndexedSeq[Int] = Vector(31875000)
+        rs: collection.immutable.IndexedSeq[Int] = Vector(31875000)
       """)
     }
     'p10{
@@ -144,7 +143,7 @@ class EulerTests(check0: => Checker) extends TestSuite{
       check.session("""
         @ lazy val ps: Stream[Int] = 2 #:: Stream.from(3).filter(i =>
         @    ps.takeWhile(j => j * j <= i).forall(i % _ > 0))
-        ps: scala.Stream[Int] = <lazy>
+        ps: Stream[Int] = <lazy>
 
         @ ps.view.takeWhile(_ < 2000000).foldLeft(0L)(_ + _)
         res1: Long = 142913828922L
@@ -174,11 +173,10 @@ class EulerTests(check0: => Checker) extends TestSuite{
           |04 42 16 73 38 25 39 11 24 94 72 18 08 46 29 32 40 62 76 36
           |20 69 36 41 72 30 23 88 34 62 99 69 82 67 59 85 74 04 36 16
           |20 73 35 29 78 31 90 01 74 31 49 71 48 86 81 16 23 57 05 54
-          |01 70 54 71 83 51 54 69 16 92 33 48 61 43 52 01 89 19 67 48
-        """.stripMargin.replace("\n", " ")
+          |01 70 54 71 83 51 54 69 16 92 33 48 61 43 52 01 89 19 67 48""".stripMargin.replace("\n", " ")
       check.session(s"""
         @ val s = "$data"
-        s: java.lang.String = "$data"
+        s: String = "$data"
 
         @ val ns = s.split("${"""\\s+"""}").map(_.toInt)
 
@@ -201,7 +199,7 @@ class EulerTests(check0: => Checker) extends TestSuite{
       // What is the value of the first triangle number to have over five hundred divisors?*
       check.session("""
         @ lazy val ts: Stream[Int] = 0 #:: ts.zipWithIndex.map(p => p._1 + p._2 + 1)
-        ts: scala.Stream[Int] = <lazy>
+        ts: Stream[Int] = <lazy>
 
         @ def p(t: Int) = {
         @   Range(1, Int.MaxValue)
@@ -367,10 +365,10 @@ class EulerTests(check0: => Checker) extends TestSuite{
       // the numbers in words from 1 to 1000?*
       check.session("""
         @ val units = Array(0, 3, 3, 5, 4, 4, 3, 5, 5, 4, 3, 6, 6, 8, 8, 7, 7, 9, 8, 8)
-        units: scala.Array[Int] = Array(0, 3, 3, 5, 4, 4, 3, 5, 5, 4, 3, 6, 6, 8, 8, 7, 7, 9, 8, 8)
+        units: Array[Int] = Array(0, 3, 3, 5, 4, 4, 3, 5, 5, 4, 3, 6, 6, 8, 8, 7, 7, 9, 8, 8)
 
         @ val tens = Array(0, 0, 6, 6, 5, 5, 5, 7, 6, 6)
-        tens: scala.Array[Int] = Array(0, 0, 6, 6, 5, 5, 5, 7, 6, 6)
+        tens: Array[Int] = Array(0, 0, 6, 6, 5, 5, 5, 7, 6, 6)
 
         @ lazy val name: Int => Int = {
         @   case n if(n < 20) => units(n)
