@@ -8,9 +8,11 @@ lazy val sharedSettings = Seq[Setting[_]](
     Resolver.sonatypeRepo("snapshots")
   ),
   autoCompilerPlugins := true,
-  scalaVersion := "2.10.5",
+  // Beware that for the tests to pass, the scala version must be different than the one of SBT
+  // (class path is not filtered correctly else)
+  scalaVersion := "2.10.6",
   crossScalaVersions := Seq(
-    "2.10.5", "2.10.4"
+    "2.10.6", "2.10.5", "2.10.4"
   ),
   crossVersion := CrossVersion.full,
   ivyScala := ivyScala.value map { _.copy(overrideScalaVersion = true) },
