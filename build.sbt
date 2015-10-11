@@ -209,9 +209,7 @@ lazy val spark13 = sparkProject("1.3.1", "2.4.0")
 lazy val spark12 = sparkProject("1.2.2", "2.4.0")
 
 // only built on a specific scala 2.10 only branch
-/*
 lazy val spark11 = sparkProject("1.1.1", "2.4.0", "-1.1")
-*/
 
 lazy val shell = Project(id = "shell", base = file("shell"))
   .dependsOn(shellApi, interpreter)
@@ -242,8 +240,8 @@ lazy val shell = Project(id = "shell", base = file("shell"))
 
 lazy val root = project.in(file("."))
   .settings(sharedSettings: _*)
-  .aggregate(api, ivyLight, interpreter, shellApi, spark15, spark14, spark13, spark12, shell, tprint)
-  .dependsOn(api, ivyLight, interpreter, shellApi, spark15, spark14, spark13, spark12, shell, tprint)
+  .aggregate(api, ivyLight, interpreter, shellApi, spark15, spark14, spark13, spark12, spark11, shell, tprint)
+  .dependsOn(api, ivyLight, interpreter, shellApi, spark15, spark14, spark13, spark12, spark11, shell, tprint)
   .settings(
     publish := {},
     publishLocal := {},
