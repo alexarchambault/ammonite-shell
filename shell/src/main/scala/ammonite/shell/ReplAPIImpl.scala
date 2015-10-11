@@ -103,7 +103,7 @@ abstract class ReplAPIImpl(
 
         Iterator(
           colors.ident, ident, colors.reset, ": ",
-          weakTypeOf[T].toString, " = "
+          implicitly[TPrint[T]].render, " = "
         ) ++ rhs
       }
 
