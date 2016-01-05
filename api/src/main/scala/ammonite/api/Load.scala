@@ -1,88 +1,42 @@
 package ammonite.api
 
 import java.io.File
-import java.net.URL
 
-trait AddDependency {
-  /**
-   * Load a `.jar` file
-   */
-  def jar(jar: File, jars: File*): Unit
-  /**
-   * Load a `.jar` from a URL
-   */
-  def jar(url: URL, urls: URL*): Unit
-  /**
-   * Load a `.jar` from a path or URL
-   */
-  def jar(path: String, paths: String*): Unit
+/** Complement of `Classes` - manages things put in the classpath as Maven-style dependencies */
+trait Load {
+  def path(paths: String*)(implicit tpe: ClassLoaderType = ClassLoaderType.Main): Unit
 
-  /**
-   * Load a module from its maven/ivy coordinates
-   */
-  def ivy(coordinates: (String, String, String)*): Unit
+  /** Load a module from its Maven coordinates */
+  def module(modules: (String, String, String)*)(implicit tpe: ClassLoaderType = ClassLoaderType.Main): Unit
+
+  /** Just resolves some modules, does not load them */
+  def resolve(modules: (String, String, String)*): Seq[File]
+
+  /** Add a resolver to Ivy module resolution */
+  def repository(repository: Repository*): Unit
 }
 
-trait Load extends AddDependency {
-  def verbose: Boolean
-  def verbose_=(v: Boolean): Unit
-  /**
-   * Load one or several sbt project(s). Requires the sbt-detailed-settings
-   * SBT plugin, and the sbt-extra launcher.
-   */
-  def sbt(path: File, projects: String*): Unit
-  def sbt(path: String, projects: String*): Unit =
-    sbt(new File(path), projects: _*)
-  /**
-   * Just resolves some modules, does not load them
-   */
-  def resolve(coordinates: (String, String, String)*): Seq[File]
+trait Repository
 
-  /**
-   * Add a resolver to Ivy module resolution
-   */
-  def resolver(resolver: Resolver*): Unit
+object Repository {
+  case object Local extends Repository
+  case class Maven(base: String) extends Repository
 
-  /**
-   * Compiler dependencies (accessible through macros) can be added through this
-   */
-  def compiler: AddDependency
-
-  /**
-   * Compiler plugin dependencies can be added through this
-   */
-  def plugin: AddDependency
-
-  /**
-   * Loads a command into the REPL and
-   * evaluates them one after another
-   */
-  def apply(line: String): Unit
+  val central = Maven("https://repo1.maven.org/maven2/")
+  def sonatype(status: String) =
+    Maven(s"https://oss.sonatype.org/content/repositories/$status")
 }
 
-trait Resolver
-
-object Resolver {
-  case object Local extends Resolver
-  case class Maven(name: String, base: String) extends Resolver
-
-  val central = Maven("public", "https://repo1.maven.org/maven2/")
-  def sonatypeRepo(status: String) = Maven(s"sonatype-$status", s"https://oss.sonatype.org/content/repositories/$status")
-}
-
-object IvyConstructor {
+object ModuleConstructor {
   val scalaBinaryVersion = scala.util.Properties.versionNumberString.split('.').take(2).mkString(".")
 
-  implicit class GroupIdExt(groupId: String) {
-    def %(artifactId: String) = (groupId, artifactId)
-    def %%(artifactId: String) = (groupId, artifactId + "_" + scalaBinaryVersion)
+  implicit class OrgExt(organization: String) {
+    def %(name: String) = (organization, name)
+    def %%(name: String) = (organization, name + "_" + scalaBinaryVersion)
   }
-  implicit class ArtifactIdExt(t: (String, String)) {
-    def %(version: String) = (t._1, t._2, version)
+  implicit class OrgNameExt(orgName: (String, String)) {
+    def %(version: String) = (orgName._1, orgName._2, version)
   }
 
-  implicit class ResolverNameExt(name: String) {
-    def at(location: String) = Resolver.Maven(name, location)
-  }
-  val Resolver = ammonite.api.Resolver
+  val Repository = ammonite.api.Repository
 }

@@ -2,8 +2,8 @@
 lazy val sharedSettings = Seq[Setting[_]](
   organization := "com.github.alexarchambault",
   resolvers ++= Seq(
-    "Typesafe repository" at "http://repo.typesafe.com/typesafe/releases/",
-    "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases",
+    "typesafe-releases" at "http://repo.typesafe.com/typesafe/releases/",
+    "scalaz-bintray" at "http://dl.bintray.com/scalaz/releases",
     Resolver.sonatypeRepo("releases"),
     Resolver.sonatypeRepo("snapshots")
   ),
@@ -35,22 +35,17 @@ lazy val sharedSettings = Seq[Setting[_]](
   licenses := Seq("MIT license" -> url("http://www.opensource.org/licenses/mit-license.php")),
   pomExtra := {
     <url>https://github.com/alexarchambault/ammonite-shell</url>
-      <scm>
-        <url>git://github.com/alexarchambault/ammonite-shell.git</url>
-        <connection>scm:git://github.com/alexarchambault/ammonite-shell.git</connection>
-      </scm>
-      <developers>
-        <developer>
-          <id>alexarchambault</id>
-          <name>Alexandre Archambault</name>
-          <url>https://github.com/alexarchambault</url>
-        </developer>
-        <developer>
-          <id>lihaoyi</id>
-          <name>Li Haoyi</name>
-          <url>https://github.com/lihaoyi</url>
-        </developer>
-      </developers>
+    <scm>
+      <url>git://github.com/alexarchambault/ammonite-shell.git</url>
+      <connection>scm:git://github.com/alexarchambault/ammonite-shell.git</connection>
+    </scm>
+    <developers>
+      <developer>
+        <id>alexarchambault</id>
+        <name>Alexandre Archambault</name>
+        <url>https://github.com/alexarchambault</url>
+      </developer>
+    </developers>
   },
   publishMavenStyle := true,
   ReleaseKeys.versionBump := sbtrelease.Version.Bump.Bugfix,
@@ -70,39 +65,23 @@ lazy val testSettings = Seq(
 )
 
 
-lazy val api = project.in(file("api"))
+lazy val api = project
   .settings(sharedSettings: _*)
   .settings(
     name := "ammonite-api"
   )
 
-lazy val ivyLight = project.in(file("ivy-light"))
-  .settings(sharedSettings ++ testSettings: _*)
-  .settings(
-    name := "ivy-light",
-    libraryDependencies ++= Seq(
-      "org.apache.ivy" % "ivy" % "2.4.0"
-    ),
-    libraryDependencies ++= {
-      if (scalaVersion.value startsWith "2.10.")
-        Seq()
-      else
-        Seq(
-          "org.scala-lang.modules" %% "scala-xml" % "1.0.3",
-          "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.3"
-        )
-    }
-  )
-
-lazy val interpreter = project.in(file("interpreter"))
-  .dependsOn(api, ivyLight)
+lazy val interpreter = project
+  .dependsOn(api)
   .settings(sharedSettings: _*)
   .settings(
     name := "ammonite-interpreter",
     libraryDependencies ++= Seq(
       "org.scala-lang" % "scala-compiler" % scalaVersion.value,
       "org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full,
-      "com.lihaoyi" %% "scalaparse" % "0.2.1"
+      "com.lihaoyi" %% "scalaparse" % "0.3.4",
+      "com.github.alexarchambault" %% "coursier" % "1.0.0-M1",
+      "com.github.alexarchambault" %% "coursier-cache" % "1.0.0-M1"
     ),
     libraryDependencies ++= {
       if (scalaVersion.value startsWith "2.10.")
@@ -112,14 +91,14 @@ lazy val interpreter = project.in(file("interpreter"))
     }
   )
 
-lazy val shellApi = project.in(file("shell-api"))
+lazy val `shell-api` = project
   .dependsOn(api, tprint)
   .settings(sharedSettings: _*)
   .settings(
     name := "ammonite-shell-api",
     libraryDependencies ++= Seq(
       "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-      "com.lihaoyi" %% "pprint" % "0.3.4"
+      "com.lihaoyi" %% "pprint" % "0.3.6"
     )
   )
   .settings(buildInfoSettings: _*)
@@ -139,7 +118,7 @@ lazy val tprint = project
     libraryDependencies ++= {
       Seq(
         "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-        "com.lihaoyi" %% "pprint" % "0.3.4"
+        "com.lihaoyi" %% "pprint" % "0.3.6"
       ) ++ {
         if (scalaVersion.value.startsWith("2.11"))
           Seq("org.scala-lang" % "scala-compiler" % scalaVersion.value
@@ -181,22 +160,38 @@ lazy val tprint = project
     }
   )
 
+val hadoopExclusions = Seq(
+  ExclusionRule("asm", "asm"),
+  ExclusionRule("org.codehaus.jackson", "jackson-mapper-asl"),
+  ExclusionRule("org.ow2.asm", "asm"),
+  ExclusionRule("org.jboss.netty", "netty"),
+  ExclusionRule("commons-logging", "commons-logging"),
+  ExclusionRule("org.mockito", "mockito-all"),
+  ExclusionRule("org.mortbay.jetty", "servlet-api-2.5"),
+  ExclusionRule("javax.servlet", "servlet-api"),
+  ExclusionRule("junit", "junit")
+)
+
+val sparkExclusions = Seq(
+  ExclusionRule("org.apache.hadoop", "*"),
+  ExclusionRule("org.jboss.netty", "netty")
+)
 
 def sparkProject(sparkVersion: String, hadoopVersion: String, extraDirSuffix: String = "") = {
   val binaryVersion = sparkVersion.split('.').take(2).mkString(".")
   val shortBinaryVersion = binaryVersion.filter('.'.!=)
 
   Project(id = s"spark-$shortBinaryVersion", base = file("spark"))
-    .dependsOn(shellApi, shell % "test->test")
+    .dependsOn(`shell-api`, shell % "test->test")
     .settings(sharedSettings ++ testSettings ++ packAutoSettings: _*)
     .settings(
       name := s"ammonite-spark-$shortBinaryVersion",
       moduleName := s"ammonite-spark_$binaryVersion",
       target := target.value / s"spark-$binaryVersion",
       libraryDependencies ++= Seq(
-        "org.apache.spark" %% "spark-core" % sparkVersion excludeAll ExclusionRule("org.apache.hadoop", "*"),
-        "org.apache.spark" %% "spark-sql" % sparkVersion excludeAll ExclusionRule("org.apache.hadoop", "*"),
-        "org.apache.hadoop" % "hadoop-client" % hadoopVersion,
+        "org.apache.spark" %% "spark-core" % sparkVersion excludeAll(sparkExclusions: _*),
+        "org.apache.spark" %% "spark-sql" % sparkVersion excludeAll(sparkExclusions: _*),
+        "org.apache.hadoop" % "hadoop-client" % hadoopVersion excludeAll(hadoopExclusions: _*),
         "org.eclipse.jetty" % "jetty-server" % "8.1.14.v20131031"
       ),
       unmanagedSourceDirectories in Compile += (sourceDirectory in Compile).value / s"extra$extraDirSuffix"
@@ -205,7 +200,8 @@ def sparkProject(sparkVersion: String, hadoopVersion: String, extraDirSuffix: St
 
 /* Forcing the hadoop version, so that it does not default to a value
  * that lacks some artifacts. (e.g. 1.0.4 and hadoop-yarn-client). */
-lazy val spark15 = sparkProject("1.5.0", "2.4.0")
+lazy val spark16 = sparkProject("1.6.0", "2.4.0")
+lazy val spark15 = sparkProject("1.5.2", "2.4.0")
 lazy val spark14 = sparkProject("1.4.1", "2.4.0")
 lazy val spark13 = sparkProject("1.3.1", "2.4.0")
 lazy val spark12 = sparkProject("1.2.2", "2.4.0")
@@ -214,22 +210,15 @@ lazy val spark12 = sparkProject("1.2.2", "2.4.0")
 lazy val spark11 = sparkProject("1.1.1", "2.4.0", "-1.1")
 
 lazy val shell = Project(id = "shell", base = file("shell"))
-  .dependsOn(shellApi, interpreter)
+  .dependsOn(`shell-api`, interpreter)
   .settings(sharedSettings ++ testSettings: _*)
-  .settings(packAutoSettings ++ publishPackTxzArchive ++ publishPackZipArchive: _*)
-  .settings(
-    // overriding these three settings so that the directory name in the published packages matches the package file names.
-    // e.g. directory ammonite-shell_2.11.6-0.3.1 in package ammonite-shell_2.11.6-0.3.1.tar.xz
-    packArchivePrefix := s"ammonite-shell_${scalaVersion.value}",
-    packArchiveTxzArtifact := Artifact("ammonite-shell", "arch", "tar.xz"),
-    packArchiveZipArtifact := Artifact("ammonite-shell", "arch", "zip")
-  )
+  .settings(packAutoSettings: _*)
   .settings(
     name := "ammonite-shell",
     libraryDependencies ++= Seq(
       "jline" % "jline" % "2.12",
       "com.github.alexarchambault" %% "case-app" % "0.2.2",
-      "com.lihaoyi" %% "ammonite-terminal" % "0.4.5"
+      "com.lihaoyi" %% "ammonite-terminal" % "0.5.2"
     ),
     libraryDependencies ++= {
       if (scalaVersion.value startsWith "2.10.")
@@ -242,8 +231,8 @@ lazy val shell = Project(id = "shell", base = file("shell"))
 
 lazy val root = project.in(file("."))
   .settings(sharedSettings: _*)
-  .aggregate(api, ivyLight, interpreter, shellApi, spark15, spark14, spark13, spark12, spark11, shell, tprint)
-  .dependsOn(api, ivyLight, interpreter, shellApi, spark15, spark14, spark13, spark12, spark11, shell, tprint)
+  .aggregate(api, interpreter, `shell-api`, spark15, spark14, spark13, spark12, spark11, shell, tprint)
+  .dependsOn(api, interpreter, `shell-api`, spark15, spark14, spark13, spark12, spark11, shell, tprint)
   .settings(
     publish := {},
     publishLocal := {},
