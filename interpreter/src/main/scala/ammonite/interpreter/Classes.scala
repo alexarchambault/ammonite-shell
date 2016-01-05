@@ -3,6 +3,7 @@ package ammonite.interpreter
 import java.io.{FileOutputStream, File}
 import java.net.{URLClassLoader, URL}
 import java.nio.file.Files
+import scala.collection.mutable
 
 import ammonite.api.ClassLoaderType
 
@@ -11,6 +12,7 @@ class AddURLClassLoader(
   tmpClassDir: => File
 ) extends URLClassLoader(Array(), parent) {
 
+  var urls = Seq.empty[URL]
   var dirs = Seq.empty[File]
   var map = Map.empty[String, Array[Byte]]
 
@@ -28,8 +30,18 @@ class AddURLClassLoader(
       None
   }
 
-  override def addURL(url: URL): Unit = super.addURL(url)
+  override def addURL(url: URL): Unit = {
+    urls = urls :+ url
+    super.addURL(url)
+  }
   def addDir(dir: File): Unit = dirs = dirs :+ dir
+
+  def add(paths: File*): Unit =
+    for (path <- paths)
+      if (path.isDirectory)
+        addDir(path)
+      else
+        addURL(path.toURI.toURL)
 
 
   def fromDirs(name: String): Option[Array[Byte]] = {
@@ -90,6 +102,29 @@ class AddURLClassLoader(
       .orElse(resourceFromDirs(name))
       .orNull
 
+  def cloneLoader(): AddURLClassLoader = {
+    def loaders(cl: AddURLClassLoader): Stream[AddURLClassLoader] = {
+      def tail = cl.getParent match {
+        case a: AddURLClassLoader => loaders(a)
+        case _ => Stream.empty
+      }
+
+      cl #:: tail
+    }
+
+    def helper(parent0: ClassLoader, a: AddURLClassLoader): AddURLClassLoader = {
+      val cl = new AddURLClassLoader(parent0, tmpClassDir)
+      a.dirs.foreach(cl.addDir)
+      a.urls.foreach(cl.addURL)
+      cl.map = a.map
+
+      cl
+    }
+
+    val loaders0 = loaders(this).toVector.reverse
+
+    (helper(loaders0.head.getParent, loaders0.head) /: loaders0)(helper)
+  }
 }
 
 object Classes {
@@ -184,63 +219,88 @@ object Classes {
 
 }
 
+trait ClassesAction[T] { self =>
+  def apply(classes: Classes): T
+  def map[U](f: T => U): ClassesAction[U] =
+    flatMap(t => ClassesAction.point(f(t)))
+  def flatMap[U](f: T => ClassesAction[U]): ClassesAction[U] =
+    ClassesAction.instance { classes =>
+      f(self(classes))(classes)
+    }
+}
+
+object ClassesAction {
+  def point[T](t: T): ClassesAction[T] =
+    instance(_ => t)
+  def instance[T](t: Classes => T): ClassesAction[T] =
+    new ClassesAction[T] {
+      def apply(classes: Classes) = t(classes)
+    }
+
+  def addPath(tpe: ClassLoaderType)(paths0: File*): ClassesAction[Unit] =
+    instance { classes =>
+      tpe match {
+        case ClassLoaderType.Main =>
+          val newPaths = paths0.filterNot(classes.path(ClassLoaderType.Main).toSet).distinct
+
+          if (newPaths.nonEmpty) {
+            classes.extraPaths += ClassLoaderType.Main -> (classes.extraPaths(ClassLoaderType.Main) ++ newPaths)
+            val cl0 = classes.newClassLoader(classes.classLoaders0(ClassLoaderType.Main))
+            cl0.add(newPaths: _*)
+            classes.classLoaders0(ClassLoaderType.Main) = cl0
+            classes.onPathsAddedHooks.foreach(_(newPaths, ClassLoaderType.Main))
+          }
+
+          addPath(ClassLoaderType.Macro)(paths0: _*)(classes)
+
+        case ClassLoaderType.Macro =>
+          val newPaths = paths0.filterNot(classes.path(ClassLoaderType.Macro).toSet).distinct
+
+          if (newPaths.nonEmpty) {
+            classes.extraPaths += ClassLoaderType.Macro -> (classes.extraPaths(ClassLoaderType.Macro) ++ newPaths)
+            val cl0 = classes.newClassLoader(classes.classLoaders0(ClassLoaderType.Macro))
+            cl0.add(newPaths: _*)
+            classes.classLoaders0(ClassLoaderType.Macro) = cl0
+            classes.onPathsAddedHooks.foreach(_(newPaths, ClassLoaderType.Macro))
+          }
+
+        case ClassLoaderType.Plugin =>
+          val newPaths = paths0.filterNot(classes.path(ClassLoaderType.Plugin).toSet).distinct
+
+          if (newPaths.nonEmpty) {
+            classes.extraPaths += ClassLoaderType.Plugin -> (classes.extraPaths(ClassLoaderType.Plugin) ++ newPaths)
+            val cl0 = classes.newClassLoader(classes.classLoaders0(ClassLoaderType.Plugin))
+            cl0.add(newPaths: _*)
+            classes.classLoaders0(ClassLoaderType.Plugin) = cl0
+            classes.onPathsAddedHooks.foreach(_(newPaths, ClassLoaderType.Plugin))
+          }
+      }
+    }
+
+}
+
 class Classes(
-  startClassLoader: ClassLoader = Thread.currentThread().getContextClassLoader,
-  startPaths: Map[ClassLoaderType, Seq[File]] = Classes.defaultPaths(),
-  startCompilerClassLoader: ClassLoader = null
+  classLoader0: ClassLoader = Thread.currentThread().getContextClassLoader,
+  macroClassLoader0: ClassLoader = null,
+  pluginClassLoader0: ClassLoader = Thread.currentThread().getContextClassLoader,
+  val startPaths: Map[ClassLoaderType, Seq[File]] = Classes.defaultPaths()
 ) extends ammonite.api.Classes {
 
-  var actualStartClassLoader = startClassLoader
-  var actualStartCompilerClassLoader = startCompilerClassLoader
+  def newClassLoader(parent: ClassLoader): AddURLClassLoader =
+    new AddURLClassLoader(parent, tmpClassDir)
 
-  def useMacroClassLoader(value: Boolean): Unit = {
-    val currentStartClassLoader = actualStartClassLoader
-    val currentStartCompilerClassLoader = actualStartCompilerClassLoader
+  var classLoaders0 = mutable.Map[ClassLoaderType, AddURLClassLoader](
+    ClassLoaderType.Main -> newClassLoader(classLoader0),
+    ClassLoaderType.Macro -> newClassLoader(Option(macroClassLoader0).getOrElse(classLoader0)),
+    ClassLoaderType.Plugin -> newClassLoader(pluginClassLoader0)
+  )
 
-    if (value) {
-      actualStartClassLoader = Option(startCompilerClassLoader) getOrElse startClassLoader
-      actualStartCompilerClassLoader = actualStartClassLoader
-    } else {
-      actualStartClassLoader = startClassLoader
-      actualStartCompilerClassLoader = startCompilerClassLoader
-    }
-
-    if (actualStartClassLoader != currentStartClassLoader) {
-      classLoader0 = classLoaderClone()
-      compilerClassLoader = null
-    }
-
-    if (actualStartCompilerClassLoader != currentStartCompilerClassLoader)
-      compilerClassLoader = null
-  }
+  val map = new mutable.HashMap[String, Array[Byte]]
 
   lazy val tmpClassDir = {
     val d = Files.createTempDirectory("ammonite-classes").toFile
     d.deleteOnExit()
     d
-  }
-
-  var classLoader0: AddURLClassLoader = new AddURLClassLoader(actualStartClassLoader, tmpClassDir)
-
-  def newClassLoader() = {
-    classLoader0 = new AddURLClassLoader(classLoader0, tmpClassDir)
-    compilerClassLoader = null
-  }
-
-  def classLoaderClone(baseClassLoader: ClassLoader = null): AddURLClassLoader = {
-    val classLoaders0 = classLoaders.toList.reverse // Reversing, so that dirs/classes added later override those previously added
-    val classLoader = new AddURLClassLoader(Option(baseClassLoader) getOrElse actualStartClassLoader, tmpClassDir)
-    extraPaths(ClassLoaderType.Main)
-      .filter(f => f.isFile && f.getName.endsWith(".jar"))
-      .foreach(f => classLoader.addURL(f.toURI.toURL))
-    classLoaders0.foreach(classLoader.dirs ++= _.dirs)
-    classLoaders0.foreach(classLoader.map ++= _.map)
-    classLoader
-  }
-
-  def resetClassLoader() = {
-    classLoader0 = classLoaderClone()
-    compilerClassLoader = null
   }
 
   var extraPaths = Map[ClassLoaderType, Seq[File]](
@@ -251,110 +311,33 @@ class Classes(
 
   var classMaps = Seq.empty[String => Option[Array[Byte]]]
 
-  var pluginClassLoader: AddURLClassLoader = classLoaderClone(Option(actualStartCompilerClassLoader) getOrElse actualStartClassLoader)
-
-  def addPath(tpe: ClassLoaderType)(paths: File*): Unit =
-    tpe match {
-      case ClassLoaderType.Main =>
-        newClassLoader()
-        var newPaths = Seq.empty[File]
-
-        for (path <- paths if !startPaths(ClassLoaderType.Main).contains(path) && !extraPaths(ClassLoaderType.Main).contains(path)) {
-          if (path.isFile && path.getName.endsWith(".jar"))
-            classLoader0.addURL(path.toURI.toURL)
-          else
-            classLoader0.addDir(path)
-
-          newPaths = newPaths :+ path
-        }
-
-        newPaths = newPaths.distinct
-
-        extraPaths += ClassLoaderType.Main -> (extraPaths(ClassLoaderType.Main) ++ newPaths)
-        onPathsAddedHooks.foreach(_(newPaths))
-        compilerClassLoader = null
-
-      case ClassLoaderType.Macro =>
-        val newJars = paths.filter(jar =>
-          !extraPaths(ClassLoaderType.Macro).contains(jar) &&
-            !startPaths(ClassLoaderType.Macro).contains(jar) &&
-            !startPaths(ClassLoaderType.Main).contains(jar) &&
-            !extraPaths(ClassLoaderType.Main).contains(jar)
-        )
-        if (newJars.nonEmpty) {
-          extraPaths += ClassLoaderType.Macro -> (extraPaths(ClassLoaderType.Macro) ++ newJars)
-          compilerClassLoader = null
-        }
-
-      case ClassLoaderType.Plugin =>
-        var newPaths = Seq.empty[File]
-        for (jar <- paths if jar.isFile && !startPaths(ClassLoaderType.Plugin).contains(jar) && jar.getName.endsWith(".jar")) {
-          pluginClassLoader.addURL(jar.toURI.toURL)
-          newPaths = newPaths :+ jar
-        }
-        for (dir <- paths if dir.isDirectory && !startPaths(ClassLoaderType.Plugin).contains(dir)) {
-          pluginClassLoader.addDir(dir)
-          newPaths = newPaths :+ dir
-        }
-
-        extraPaths += ClassLoaderType.Plugin -> (extraPaths(ClassLoaderType.Plugin) ++ newPaths)
-    }
-
-  def addClass(name: String, b: Array[Byte]): Unit = {
-    classLoader0.map += name -> b
-    compilerClassLoader = null
-  }
-
-  def classLoaders: Stream[AddURLClassLoader] = {
-    def helper(c: ClassLoader): Stream[AddURLClassLoader] =
-      Option(c) match {
-        case Some(a: AddURLClassLoader) => a #:: helper(a.getParent)
-        case _ => Stream.empty
-      }
-
-    helper(classLoader0)
-  }
-
-  def fromAddedClasses(name: String): Option[Array[Byte]] =
-    classLoaders.collectFirst{ case c if c.map contains name => c.map(name) }
-
-  def classLoader(tpe: ClassLoaderType): ClassLoader = 
-    tpe match {
-      case ClassLoaderType.Main   => classLoader0
-      case ClassLoaderType.Plugin => pluginClassLoader
-      case ClassLoaderType.Macro  =>
-        if (actualStartCompilerClassLoader == null || actualStartCompilerClassLoader == actualStartClassLoader)
-          classLoader0
-        else {
-          if (compilerClassLoader == null) {
-            compilerClassLoader = classLoaderClone(Option(actualStartCompilerClassLoader) getOrElse actualStartClassLoader)
-            extraPaths(ClassLoaderType.Macro)
-              .filter(f => f.isFile && f.getName.endsWith(".jar"))
-              .foreach(f => compilerClassLoader.addURL(f.toURI.toURL))
-          }
-
-          compilerClassLoader
-        }
-    }
-
-  var compilerClassLoader: AddURLClassLoader = null
-
   def path(tpe: ClassLoaderType): Seq[File] =
     tpe match {
       case ClassLoaderType.Main =>
-        startPaths(ClassLoaderType.Main) ++
-          extraPaths(ClassLoaderType.Main)
-      case ClassLoaderType.Plugin =>
-        startPaths(ClassLoaderType.Plugin) ++
-          extraPaths(ClassLoaderType.Plugin)
+        startPaths(ClassLoaderType.Main) ++ extraPaths(ClassLoaderType.Main)
       case ClassLoaderType.Macro =>
-        path(ClassLoaderType.Main) ++
-          startPaths(ClassLoaderType.Macro) ++
-          extraPaths(ClassLoaderType.Macro)
+        startPaths(ClassLoaderType.Macro) ++ extraPaths(ClassLoaderType.Macro)
+      case ClassLoaderType.Plugin =>
+        startPaths(ClassLoaderType.Plugin) ++ extraPaths(ClassLoaderType.Plugin)
     }
 
-  var onPathsAddedHooks = Seq.empty[Seq[File] => Unit]
-  def onPathsAdded(action: Seq[File] => Unit) = {
+  def addClass(name: String, b: Array[Byte]): Unit = {
+    classLoaders0(ClassLoaderType.Main).map += name -> b
+    classLoaders0(ClassLoaderType.Macro).map += name -> b
+    map += name -> b
+  }
+
+  def fromAddedClasses(name: String): Option[Array[Byte]] =
+    map.get(name)
+
+  def classLoader(tpe: ClassLoaderType): ClassLoader = 
+    classLoaders0(tpe)
+
+  var onPathsAddedHooks = Seq.empty[(Seq[File], ClassLoaderType) => Unit]
+  def onPathsAdded(action: (Seq[File], ClassLoaderType) => Unit) = {
     onPathsAddedHooks = onPathsAddedHooks :+ action
   }
+
+  def classLoaderClone(): ClassLoader =
+    classLoaders0(ClassLoaderType.Main).cloneLoader()
 }

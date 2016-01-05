@@ -1,7 +1,7 @@
 package ammonite.shell
 package tests
 
-import ammonite.interpreter.Res
+import ammonite.api.InterpreterError
 import utest._
 
 class AdvancedTests(
@@ -16,14 +16,14 @@ class AdvancedTests(
   val tests = TestSuite{
     val check = check0
     'load{
-      'ivy{
+      'modules{
         'standalone{
           val tq = "\"\"\""
           check.session(s"""
             @ import scalatags.Text.all._
             error: not found: value scalatags
 
-            @ load.ivy("com.lihaoyi" %% "scalatags" % "0.4.5")
+            @ load.module("com.lihaoyi" %% "scalatags" % "0.4.5")
 
             @ import scalatags.Text.all._
             import scalatags.Text.all._
@@ -37,7 +37,7 @@ class AdvancedTests(
         'dependent{
           // Make sure it automatically picks up jawn-parser since upickle depends on it,
           check.session("""
-            @ load.ivy("com.lihaoyi" %% "upickle" % "0.2.6")
+            @ load.module("com.lihaoyi" %% "upickle" % "0.2.6")
 
             @ import upickle._
             import upickle._
@@ -55,14 +55,14 @@ class AdvancedTests(
         // 'reloading{
         //   // Make sure earlier-loaded things indeed continue working
         //   check.session("""
-        //     @ load.ivy("com.lihaoyi" %%"scalarx" % "0.2.7")
+        //     @ load.module("com.lihaoyi" %%"scalarx" % "0.2.7")
         //
-        //     @ load.ivy("com.scalatags" %% "scalatags" % "0.2.5")
+        //     @ load.module("com.scalatags" %% "scalatags" % "0.2.5")
         //
         //     @ scalatags.all.div("omg").toString
         //     res2: java.lang.String = "<div>omg</div>"
         //
-        //     @ load.ivy("com.lihaoyi" %% "scalatags" % "0.4.5")
+        //     @ load.module("com.lihaoyi" %% "scalatags" % "0.4.5")
         //
         //     @ import scalatags.Text.all._; scalatags.Text.all.div("omg").toString
         //     import scalatags.Text.all._
@@ -85,7 +85,7 @@ class AdvancedTests(
         // }
         'complex{
           check.session("""
-            @ load.ivy("com.typesafe.akka" %% "akka-http-experimental" % "1.0-M3")
+            @ load.module("com.typesafe.akka" %% "akka-http-experimental" % "1.0-M3")
 
             @ implicit val system = akka.actor.ActorSystem()
 
@@ -119,7 +119,7 @@ class AdvancedTests(
       }
       'code{
         check.session("""
-          @ load("val x = 1")
+          @ eval("val x = 1")
 
           @ x
           res2: Int = 1
@@ -158,21 +158,50 @@ class AdvancedTests(
     }
     'exit{
       if (isAmmonite)
-        check.result("exit", Res.Exit)
+        check.result("exit", Left(InterpreterError.Exit))
     }
-    'skip{
-      check("1", "res0: Int = 1")
-      check.result("", Res.Skip)
-      check("2", "res1: Int = 2")
+    'customPPrint{
+      check.session(s"""
+        @ class C
+        defined class C
+
+        @ implicit def pprint = _root_.pprint.PPrinter[C]((t, c) => Iterator("INSTANCE OF CLASS C"))
+        defined function pprint
+
+        @ new C
+        res2: C = INSTANCE OF CLASS C
+      """)
     }
-    'history{
+
+    'shapeless{
       check.session("""
-        @ val x = 1
+        @ load.module("com.chuusai" %% "shapeless" % "2.2.5"); if (scala.util.Properties.versionNumberString.startsWith("2.10.")) load.module("org.scalamacros" % "paradise_2.10.6" % "2.0.1")(ammonite.api.ClassLoaderType.Plugin)
 
-        @ x
+        @ import shapeless._
 
-        @ history
-        res2: Seq[String] = Vector("val x = 1", "x")
+        @ (1 :: "lol" :: List(1, 2, 3) :: HNil)(1)
+        res2: String = "lol"
+
+        @ case class Foo(i: Int, blah: String, b: Boolean)
+        defined class Foo
+
+        @ Generic[Foo].to(Foo(2, "a", true))
+        res4: Int :: String :: Boolean :: HNil = ::(2, ::("a", ::(true, HNil)))
+      """)
+    }
+
+    'scalaz{
+      check.session("""
+        @ load.module("org.scalaz" %% "scalaz-core" % "7.1.1")
+
+        @ import scalaz._
+        import scalaz._
+
+        @ import Scalaz._
+        import Scalaz._
+
+        @ (Option(1) |@| Option(2))(_ + _)
+        res3: Option[Int] = Some(3)
       """)
     }
     'customPPrint{
@@ -221,9 +250,9 @@ class AdvancedTests(
     }
     'scalazstream{
       check.session("""
-        @ load.resolver("Scalaz Bintray Repo" at "https://dl.bintray.com/scalaz/releases")
+        @ load.repository(Repository.Maven("https://dl.bintray.com/scalaz/releases"))
 
-        @ load.ivy("org.scalaz.stream" %% "scalaz-stream" % "0.7a")
+        @ load.module("org.scalaz.stream" %% "scalaz-stream" % "0.7a")
 
         @ import scalaz.stream._
         import scalaz.stream._
@@ -231,13 +260,13 @@ class AdvancedTests(
         @ import scalaz.concurrent.Task
         import scalaz.concurrent.Task
 
-        @ val p1 = Process.constant(1).toSource
-        p1: scalaz.stream.Process[scalaz.concurrent.Task,Int] = Append(Emit(Vector(1)), Vector(<function1>))
+        @ // val p1 = Process.constant(1).toSource
+        @ // p1: scalaz.stream.Process[scalaz.concurrent.Task,Int] = Append(Emit(Vector(1)), Vector(<function1>))
 
         @ val pch = Process.constant((i:Int) => Task.now(())).take(3)
-        pch: scalaz.stream.Process[Nothing,Int => scalaz.concurrent.Task[Unit]] = Append(Halt(End), Vector(<function1>))
+        pch: Process[Nothing, Int => Task[Unit]] = Append(Halt(End), Vector(<function1>))
 
-        @ p1.to(pch).runLog.run.size == 3
+        @ Process.constant(1).toSource.to(pch).runLog.run.size == 3
         res6: Boolean = true
       """)
     }
@@ -486,7 +515,7 @@ class AdvancedTests(
       check.session("""
         @ // Make sure plugins from eval class loader are not loaded
 
-        @ load.ivy("org.spire-math" %% "kind-projector" % "0.6.3")
+        @ load.module("org.spire-math" %% "kind-projector" % "0.6.3")
 
         @ trait TC0[F[_]]
         defined trait TC0
@@ -496,7 +525,7 @@ class AdvancedTests(
 
         @ // This one must be loaded
 
-        @ load.plugin.ivy("org.spire-math" %% "kind-projector" % "0.6.3")
+        @ load.module("org.spire-math" %% "kind-projector" % "0.6.3")(ammonite.api.ClassLoaderType.Plugin)
 
         @ trait TC[F[_]]
         defined trait TC
@@ -506,7 +535,7 @@ class AdvancedTests(
 
         @ // Useless - does not add plugins, and ignored by eval class loader
         
-        @ load.plugin.ivy("eu.timepit" %% "refined" % "0.2.1")
+        @ load.module("eu.timepit" %% "refined" % "0.2.1")(ammonite.api.ClassLoaderType.Plugin)
 
         @ import eu.timepit.refined._
         error: not found: value eu
@@ -514,7 +543,7 @@ class AdvancedTests(
     }
     'replApiUniqueness{
       // Make sure we can instantiate multiple copies of Interpreter, with each
-      // one getting its own `ReplBridge`. This ensures that the various
+      // one getting its own `BridgeHolder`. This ensures that the various
       // Interpreters are properly encapsulated and don't interfere with each
       // other.
       val c1 = check0

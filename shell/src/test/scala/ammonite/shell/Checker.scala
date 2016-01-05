@@ -1,15 +1,18 @@
 package ammonite.shell
 
+import ammonite.{ Ammonite, Interpreter }
+import ammonite.api.{ Evaluated, InterpreterError }
 import ammonite.interpreter._
-import ammonite.shell.util.ColorSet
-import fastparse.core.Result.Success
+
+import fastparse.core.Parsed.Success
+
 import utest._
 
 trait Checker {
   def session(sess: String, captureOut: Boolean = captureOut): Unit
   def fail(input: String, failureCheck: String => Boolean = _ => true): Unit
   def complete(cursor: Int, buf: String): (Int, Seq[String], Seq[String])
-  def run(input: String, captureOut: Boolean = captureOut): (Res[Evaluated[Unit]], Res[String])
+  def run(input: String, captureOut: Boolean = captureOut): (Either[InterpreterError, Evaluated[Unit]], Either[InterpreterError, String])
 
   def captureOut: Boolean
   def captureOut_=(v: Boolean): Unit
@@ -21,12 +24,12 @@ trait Checker {
             expected: String = null) = {
     val (processed, printed) = run(input)
     if (expected != null){
-      val expectedRes = Res.Success(expected.trim)
+      val expectedRes = Right(expected.trim)
       failLoudly(assert(printed == expectedRes))
     }
   }
 
-  def result(input: String, expected: Res[Evaluated[_]]): Unit = {
+  def result(input: String, expected: Either[InterpreterError, Evaluated[Unit]]): Unit = {
     val (processed, printed) = run(input)
     assert(processed == expected)
   }
@@ -39,13 +42,14 @@ class AmmoniteChecker extends Checker {
   var allOutput = ""
   var captureOut = false
 
-  def newInterpreter(): ammonite.api.Interpreter with InterpreterInternals =
+  def newInterpreter(): ammonite.api.Interpreter =
     Ammonite.newInterpreter(
       predef,
       classWrap = false,
       pprintConfig = pprint.Config.Defaults.PPrintConfig.copy(width = 80, height = 20),
-      colors = ColorSet.BlackWhite,
-      sharedLoader = false
+      colors = Colors.BlackWhite,
+      sharedLoader = false,
+      history = ???
     )
 
   val interp = newInterpreter()
@@ -53,13 +57,14 @@ class AmmoniteChecker extends Checker {
   if (predef.nonEmpty) {
     Parsers.split(predef) match {
       case Some(Success(stmts, _)) =>
-        val res1 = interp(
+        Interpreter.interpret(
           stmts,
-          (_, _) => (),
-          _.asInstanceOf[Iterator[String]].foreach(allOutput += _),
-          if (captureOut) Some(allOutput += _) else None
-        )
-        interp.handleOutput(res1)
+          (),
+          if (captureOut) Some(allOutput += _) else None,
+          None,
+          _.asInstanceOf[Iterator[String]].foreach(allOutput += _)
+        )(interp.asInstanceOf[Interpreter])
+
         allOutput += "\n"
       case other =>
         allOutput += s"Error (predef): $other"
@@ -79,45 +84,41 @@ class AmmoniteChecker extends Checker {
       val expected = resultLines.mkString("\n").trim
       allOutput += commandText.map("\n@ " + _).mkString("\n")
       val (processed, printed0) = run(commandText.mkString("\n"), captureOut)
-      val printed = printed0.map(_.trim)
-      interp.handleOutput(processed)
+      val printed = printed0.right.map(_.trim)
       if (expected.startsWith("error: ")){
         printed match{
-          case Res.Success(v) => assert({v; allOutput; false})
-          case Res.Failure(failureMsg) =>
+          case Right(v) => assert({v; allOutput; false})
+          case Left(err) =>
             def filtered(err: String) =
               err.replaceAll(" *\n", "\n").replaceAll("(?m)^Main\\Q.\\Escala:[0-9]*:", "Main.scala:*:")
             val expectedStripped =
               filtered(expected.stripPrefix("error: "))
-            val failureStripped = filtered(failureMsg.replaceAll("\u001B\\[[;\\d]*m", ""))
+            val failureStripped = filtered(err.msg.replaceAll("\u001B\\[[;\\d]*m", ""))
             failLoudly(assert(failureStripped.contains(expectedStripped)))
         }
       }else{
         if (expected != "")
-          failLoudly(assert(printed == Res.Success(expected)))
+          failLoudly(assert(printed == Right(expected)))
       }
     }
   }
 
-  def run(input: String, captureOut: Boolean): (Res[Evaluated[Unit]], Res[String]) = {
-//    println("RUNNING")
-//    println(input)
-//    print(".")
+  def run(input: String, captureOut: Boolean): (Either[InterpreterError, Evaluated[Unit]], Either[InterpreterError, String]) = {
     val msg = collection.mutable.Buffer.empty[String]
     val msgOut = collection.mutable.Buffer.empty[String]
     val processed = Parsers.split(input) match {
       case Some(Success(stmts, _)) =>
-        interp(
+        Interpreter.interpret(
           stmts,
-          _(_),
-          _.asInstanceOf[Iterator[String]].foreach(msg.append(_)),
-          if (captureOut) Some(msgOut.append(_)) else None
-        )
+          (),
+          if (captureOut) Some(msgOut.append(_)) else None,
+          None,
+          _.asInstanceOf[Iterator[String]].foreach(msg.append(_))
+        )(interp.asInstanceOf[Interpreter])
       case _ =>
         ???
     }
-    val printed = processed.map(_ => msgOut.mkString + msg.mkString)
-    interp.handleOutput(processed)
+    val printed = processed.right.map(_ => msgOut.mkString + msg.mkString)
     (processed, printed)
   }
 
@@ -126,10 +127,29 @@ class AmmoniteChecker extends Checker {
     val (processed, printed) = run(input)
 
     printed match{
-      case Res.Success(v) => assert({v; allOutput; false})
-      case Res.Failure(s) =>
+      case Right(v) => assert({v; allOutput; false})
+      case Left(err) =>
 
-        failLoudly(assert(failureCheck(s)))
+        val exceptions = err match {
+          case InterpreterError.UnexpectedError(Ex(ex @ _*)) => ex
+          case InterpreterError.UserException(Ex(ex @ _*)) => ex
+          case _ => Nil
+        }
+
+        val traces = exceptions.map(exception =>
+          exception.toString + "\n" +
+            exception
+              .getStackTrace
+              .takeWhile(x =>
+                x.getMethodName != "evaluating" &&
+                !x.getClassName.endsWith("$$user") &&
+                !x.getClassName.endsWith("$$user$")
+              )
+              .map("\t" + _)
+              .mkString("\n")
+        )
+
+        failLoudly(assert(failureCheck(traces.mkString("\n"))))
     }
   }
 
