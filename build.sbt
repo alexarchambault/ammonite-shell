@@ -1,5 +1,5 @@
 
-val coursierVersion = "1.0.0-M11-1"
+val coursierVersion = "1.0.0-M12"
 
 lazy val `interpreter-api` = project.in(file("interpreter/api"))
   .settings(commonSettings)
@@ -186,7 +186,8 @@ lazy val commonSettings = releaseSettings ++ Seq(
   resolvers ++= Seq(
     "typesafe-releases" at "http://repo.typesafe.com/typesafe/releases/",
     "scalaz-bintray" at "http://dl.bintray.com/scalaz/releases",
-    Resolver.sonatypeRepo("releases")
+    Resolver.sonatypeRepo("releases"),
+    Resolver.sonatypeRepo("staging")
   ),
   libraryDependencies ++= {
     if (scalaBinaryVersion.value == "2.10") Seq(
